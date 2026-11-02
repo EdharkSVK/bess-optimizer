@@ -1,0 +1,8 @@
+{
+  "source": "https://github.com/FlexPwr/bess-optimizer",
+  "file": "optimizer.py",
+  "sha256": "202acdb027e4812e79ab4c7475f6d8404736ef333fc9baea16f037d3c0cd91fd",
+  "wrapperVersion": "1.3.0",
+  "licence": "GPL-3.0-or-later",
+  "extensions": ["physical efficiency", "optional internal energy throughput cap", "15-minute day-ahead products", "physical exclusivity at every efficiency", "no same-stage offsetting trade churn", "incremental physical wear penalty"]
+}
