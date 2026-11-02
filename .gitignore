@@ -8,8 +8,17 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.backups
+.npm-cache
+.codex-pnpm-cache
+.codex-pnpm-store
 dist
 dist-ssr
+.tools
+.venv
+__pycache__
+.pytest_cache
+*.pyc
 *.local
 
 # Editor directories and files

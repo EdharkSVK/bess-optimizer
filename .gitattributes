@@ -1,0 +1,2 @@
+# The provenance fingerprint covers the exact upstream bytes, including CRLF.
+optimizer.py -text
