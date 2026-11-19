@@ -32,6 +32,28 @@ The published port is bound to your computer only. Docker maps host port `8082` 
 
 Files are parsed by the **local Python service**, not sent to an external service. Parsed studies and results are held in memory for one hour and disappear on restart. Export before reloading: the browser does not restore old sessions. At most one calculation runs at a time; every solver stage has a 30-second limit and must finish optimally. A failure identifies the date/market and never returns partial totals as complete results.
 
+## Czech PV and behind-the-meter studies
+
+Open **Behind the Meter → PV profiles** for the Czech hourly catalog, full-load hours and annual CSVs. The data is Copernicus C3S/ECMWF and ENTSO-E [PECD v4.2 FV1 historical ERA5 reanalysis](https://doi.org/10.24381/cds.f323c5ec) under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The app retains only the Czech NUTS 0 column and keeps the source capacity factors on their original UTC hourly grid. The bundled catalog covers 2016–2025. The app offers the latest ten complete years common to all four technologies in the local catalog.
+
+In **BtM study**, enter site annual electricity use, flat import and export tariffs, PV MWp, and optionally battery MW and usable MWh. The manual run compares grid-only, PV-only, and PV + BESS for the same pairings. The battery charges from surplus PV, discharges to site demand and can carry energy overnight. It starts and ends each weather year empty. **Size comparison** ranks up to 12 entered configurations and the grid-only baseline by median annual savings after wear, annualized CAPEX and fixed OPEX. The earnings chart shows median net savings and the minimum-to-maximum scenario range, by cumulative day or by weather year. Earnings and dispatch charts export their displayed data as CSV. Tariffs and project costs are user inputs. Wear is an economic allowance per internal discharged MWh.
+
+The load library uses Fritz Braeuer (2020), [Load profile data of 50 industrial plants in Germany for one year](https://doi.org/10.5281/zenodo.3899018), CC BY 4.0, specifically the 30 sites in the 2017 file. The importer treats the time labels as interval ends in Europe/Berlin, retains both autumn occurrences and excludes the four timestamps inside the nonexistent spring hour. The 100 blank year-end quarters are filled from the same time one week earlier. The first local hour wraps to the last UTC hour to keep a cyclic 2017 template. Four quarter-hours are summed as energy per hour. Each scenario copies the 2017 shape onto the weather calendar by UTC month, day and hour, replays February 28 on leap day and scales to the entered annual load before dispatch. Each scenario has its own hourly schedule and annual results.
+
+In **Utility BESS → PV + BESS**, upload all three Czech market price CSVs and select the connection limits and allowed charging sources. Historical backtest matches actual delivery dates. Weather sensitivity matches all available PV years by UTC month, day and hour to one uploaded price calendar. Each weather replay uses the same modelled market days. Prague clock-change dates follow the existing market-file rules. A delivery day touching UTC February 29 is excluded from the weather sweep so every weather year uses the same dates. The utility battery starts and ends each modelled day empty. The app reports market cash flow after each sequential stage and physical PV and grid flows at delivery.
+
+### Refresh the local profile catalog
+
+The app reads prepared profiles from `backend/profile_data`, which the existing Docker build copies. To refresh them, run the following from the checkout using the project's Python environment. Use `--start` and `--end` to set a different complete-year window if the latest annual release is pending. If you are downloading this CDS dataset for the first time, accept its terms on the [dataset download page](https://cds.climate.copernicus.eu/datasets/sis-energy-pecd?tab=download) while signed in.
+
+```sh
+python -m pip install 'cdsapi>=0.7.7'
+python -m scripts.fetch_pv
+python -m scripts.import_profiles --pv-archives .tools/profile-source
+```
+
+The downloader reads `CDSAPI_URL` and `CDSAPI_KEY` from the ignored `.api-credentials.local` file. To refresh the German profiles too, download the original `LoadProfile_30IPs_2017.csv` from Zenodo and run `python -m scripts.import_profiles --german-csv /path/to/LoadProfile_30IPs_2017.csv`. The importer checks its published checksum.
+
 ## Inputs and workflow
 
 1. Set usable energy capacity, grid-side power, round-trip efficiency and wear cost. Set the optional daily cycle limit only if required by the project.

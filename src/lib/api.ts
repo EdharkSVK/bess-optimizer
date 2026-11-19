@@ -4,7 +4,7 @@ export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) { super(message); this.status = status; }
 }
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
+export async function request<T>(url: string, options?: RequestInit): Promise<T> {
   let response: Response;
   try { response = await fetch(url, options); }
   catch (error) {

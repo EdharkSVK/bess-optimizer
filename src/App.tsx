@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { BatteryCharging, Upload, Settings2, Play, X, AlertCircle } from 'lucide-react';
 import { ApiError, getRun, startRun, validateStudy } from './lib/api';
 import StudyResults from './components/StudyResults';
+import SolarWorkspaces from './components/SolarWorkspaces';
 import ValidationReport from './components/ValidationReport';
 import { markets } from './types';
 import type { BessParameters, Market, RunState, StudyPreview } from './types';
@@ -77,13 +78,7 @@ function App() {
     return () => { disposed = true; controller.abort(); clearTimeout(timer); };
   }, [runId]);
 
-  return <div className="min-h-screen bg-background text-foreground font-sans">
-    <header className="border-b border-white/10 bg-slate-950/90 sticky top-0 z-20 backdrop-blur-md">
-      <div className="max-w-[1440px] mx-auto px-6 h-16 flex items-center justify-between gap-4">
-        <h1 className="text-xl font-semibold flex items-center gap-3"><BatteryCharging className="text-blue-400" />FlexOptima BESS App</h1>
-        <span className="text-xs text-slate-400 text-right">Historical three-market revenue potential</span>
-      </div>
-    </header>
+  return <SolarWorkspaces>
     <main className="max-w-[1440px] mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-7">
       <aside className="lg:col-span-4 xl:col-span-3 space-y-5">
         <section className={panel}>
@@ -147,6 +142,6 @@ function App() {
         {result ? <StudyResults key={runId} result={result} />  : !busy && !error && <section className={`${panel} min-h-64 flex items-center justify-center text-center text-slate-400`}><div><BatteryCharging className="mx-auto mb-4 text-blue-400" size={38} /><p className="text-lg text-slate-200">Three markets. One battery.</p><p className="text-sm mt-2 max-w-md">Choose battery settings, upload any market combination, then preview the common delivery days and calculate revenue potential.</p></div></section>}
       </div>
     </main>
-  </div>;
+  </SolarWorkspaces>;
 }
 export default App;

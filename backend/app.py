@@ -28,7 +28,7 @@ class RunRequest(BaseModel):
     battery: Battery
 
 
-def create_app(dist: Path | None = None):
+def create_app(dist: Path | None = None, profile_path: Path | None = None):
     lock = threading.RLock()
     studies, runs = {}, {}
 
@@ -50,6 +50,34 @@ def create_app(dist: Path | None = None):
         for key, record in list(runs.items()):
             if record["status"] in ("completed", "failed") and now - record["touched"] > TTL:
                 del runs[key]
+
+    def ensure_idle():
+        if any(r["status"] in ("queued", "running") for r in runs.values()):
+            raise HTTPException(409, detail="Another calculation is running. Wait for it to finish.")
+
+    def enqueue_job(kind, total, work, context=None):
+        def execute_job():
+            def progress(update):
+                with lock:
+                    runs[run_id].update(update, touched=time.monotonic())
+
+            progress({"status": "running"})
+            try:
+                result = work(progress)
+            except Exception as exc:
+                LOGGER.exception("Calculation failed for run %s", run_id)
+                progress({"status": "failed", "error": str(exc)})
+            else:
+                progress({"status": "completed", "completed": total, "result": result})
+
+        with lock:
+            cleanup()
+            ensure_idle()
+            run_id = str(uuid4())
+            runs[run_id] = {"runId": run_id, "kind": kind, "status": "queued", "total": total,
+                           "completed": 0, "error": None, "touched": time.monotonic(), "_context": context}
+            app.state.pool.submit(execute_job)
+        return {"runId": run_id}
 
     @app.get("/api/health")
     def health():
@@ -121,8 +149,7 @@ def create_app(dist: Path | None = None):
             if not study.days:
                 raise HTTPException(422, detail="No common complete days are available to calculate.")
             # One active run also bounds memory/queue use for this local application.
-            if any(r["status"] in ("queued", "running") for r in runs.values()):
-                raise HTTPException(409, detail="Another calculation is running. Wait for it to finish.")
+            ensure_idle()
             record["touched"] = time.monotonic()
             run_id = str(uuid4())
             runs[run_id] = {"runId": run_id, "status": "queued", "completedDays": 0,
@@ -138,7 +165,10 @@ def create_app(dist: Path | None = None):
             record = runs.get(run_id)
             if not record:
                 raise HTTPException(404, detail="Run expired or service restarted. Validate the files and run again.")
-            return {key: value for key, value in record.items() if key != "touched"}
+            return {key: value for key, value in record.items() if key not in ("touched", "_context")}
+
+    from .solar_api import register_solar_routes
+    register_solar_routes(app, profile_path, lock, studies, runs, cleanup, enqueue_job)
 
     static_dir = dist if dist is not None else Path(__file__).resolve().parent.parent / "dist"
     if static_dir.is_dir():

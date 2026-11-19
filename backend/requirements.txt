@@ -1,5 +1,6 @@
 # Preserve the upstream scientific stack; Python 3.11 has wheels for these versions.
 numpy==1.24.3
+scipy==1.15.3
 Pyomo==6.6.2
 fastapi==0.115.12
 uvicorn==0.34.2
