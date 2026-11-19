@@ -3,19 +3,11 @@ import { Download } from 'lucide-react';
 import Papa from 'papaparse';
 import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { download } from '../lib/exports';
-import { action, money, panel, secondary } from '../lib/solarUi';
-
-interface EarningsRange {
-  min: number;
-  median: number;
-  max: number;
-}
+import { action, field, money, panel, secondary } from '../lib/solarUi';
+import type { BtmEarnings } from '../lib/solar';
 
 interface Props {
-  earnings: {
-    daily: ({ date: string } & EarningsRange)[];
-    yearly: ({ year: number } & EarningsRange)[];
-  };
+  earnings: BtmEarnings;
   annualMedian: number;
   label: string;
 }
@@ -35,13 +27,17 @@ function formatPeriod(period: string, format: Intl.DateTimeFormat) {
 
 export default function BtmEarningsChart({ earnings, annualMedian, label }: Props) {
   const [view, setView] = useState<'daily' | 'yearly'>('daily');
+  const [month, setMonth] = useState('all');
   const daily = view === 'daily';
+  const dailyRows = month === 'all' ? earnings.daily : earnings.daily.filter(row => row.date.startsWith(`${month}-`));
+  const monthKeys = earnings.daily.filter(row => row.date.endsWith('-01')).map(row => row.date);
   const rows = (daily
-    ? earnings.daily.map(row => ({ ...row, period: row.date }))
+    ? dailyRows.map(row => ({ ...row, period: row.date }))
     : earnings.yearly.map(row => ({ ...row, period: String(row.year) })))
     .map(row => ({ ...row, range: [row.min, row.max] }));
   const periods = new Map(rows.map(row => [row.period, row]));
-  const xTicks = daily ? rows.filter(row => row.period.endsWith('-01')).map(row => row.period) : undefined;
+  const fullCalendar = daily && month === 'all';
+  const xTicks = fullCalendar ? monthKeys : undefined;
 
   function exportCsv() {
     const csvRows = rows.map(row => ({
@@ -51,14 +47,15 @@ export default function BtmEarningsChart({ earnings, annualMedian, label }: Prop
       median_earnings_eur: row.median,
       maximum_earnings_eur: row.max,
     }));
-    download(`btm-earnings-${daily ? 'cumulative' : 'yearly'}.csv`, Papa.unparse(csvRows, { escapeFormulae: true }));
+    const period = daily ? (month === 'all' ? 'cumulative' : `cumulative-${month}`) : 'yearly';
+    download(`btm-earnings-${period}.csv`, Papa.unparse(csvRows, { escapeFormulae: true }));
   }
 
-  return <section className={`${panel} space-y-4`}>
+  return <section id="btm-earnings" className={`${panel} scroll-mt-16 space-y-4 lg:scroll-mt-4`}>
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div>
         <h3 className="text-lg font-semibold">Earnings</h3>
-        <p className="mt-1 text-sm text-slate-400">{label} · {daily ? 'Cumulative through each calendar day (UTC)' : 'Annual earnings by weather year'}</p>
+        <p className="mt-1 text-sm text-slate-400">{label} · {daily ? 'Year-to-date earnings by day (UTC)' : 'Annual earnings by weather year'}</p>
       </div>
       <div className="rounded-lg border border-teal-300/20 bg-teal-300/5 px-4 py-2.5">
         <p className="text-xs text-teal-100/80">Median annual earnings</p>
@@ -66,9 +63,15 @@ export default function BtmEarningsChart({ earnings, annualMedian, label }: Prop
       </div>
     </div>
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4">
-      <div role="group" aria-label="Earnings chart view" className="flex gap-2">
-        <button type="button" className={daily ? action : secondary} aria-pressed={daily} onClick={() => setView('daily')}>Cumulative</button>
-        <button type="button" className={daily ? secondary : action} aria-pressed={!daily} onClick={() => setView('yearly')}>Yearly</button>
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="Earnings chart view" className="flex gap-2">
+          <button type="button" className={daily ? action : secondary} aria-pressed={daily} onClick={() => setView('daily')}>Cumulative</button>
+          <button type="button" className={daily ? secondary : action} aria-pressed={!daily} onClick={() => setView('yearly')}>Yearly</button>
+        </div>
+        {daily && <select aria-label="Earnings calendar month" className={`${field} mt-0 w-auto`} value={month} onChange={e => setMonth(e.target.value)}>
+          <option value="all">All months</option>
+          {monthKeys.map(key => <option key={key} value={key.slice(0, 2)}>{formatPeriod(key, monthName)}</option>)}
+        </select>}
       </div>
       <button type="button" className={`${secondary} inline-flex items-center gap-2`} onClick={exportCsv} disabled={!rows.length}>
         <Download size={14} aria-hidden="true" /> Export earnings CSV
@@ -81,7 +84,7 @@ export default function BtmEarningsChart({ earnings, annualMedian, label }: Prop
           <CartesianGrid vertical={false} stroke="#26344a" strokeDasharray="3 5" />
           <XAxis dataKey="period" ticks={xTicks} tick={ticks} minTickGap={18} tickMargin={9} axisLine={false}
             tickLine={false} padding={{ left: 5, right: 5 }}
-            tickFormatter={period => daily ? formatPeriod(String(period), monthName) : String(period)} />
+            tickFormatter={period => daily ? formatPeriod(String(period), fullCalendar ? monthName : dayName) : String(period)} />
           <YAxis width={66} tick={ticks} tickLine={false} axisLine={false} domain={['auto', 'auto']}
             tickFormatter={value => axisCurrency.format(Number(value))} />
           <ReferenceLine y={0} stroke="#475569" />

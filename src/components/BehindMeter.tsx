@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { ChartNoAxesCombined, Play, Settings2 } from 'lucide-react';
 import { btmMetrics } from '../lib/solar';
 import type { BtmDetail, BtmEnergyFlows, BtmMetric, BtmResult, Catalog, Size } from '../lib/solar';
 import { action, defaultBattery, field, money, number, panel, secondary, useSolarJob } from '../lib/solarUi';
@@ -21,6 +22,16 @@ const flowSeries = [
 const energyViews = [
   ['average', 'All-scenario average'], ['range', 'Selected interval'], ['day', 'Exact day'],
 ] as const;
+const calendarMonths = Array.from({ length: 12 }, (_, i) => ({
+  value: String(i + 1).padStart(2, '0'),
+  label: new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(2000, i, 1))),
+}));
+
+function monthBounds(year: number, month: string) {
+  const end = new Date(Date.UTC(year, Number(month), 0)).getUTCDate();
+  return [`${year}-${month}-01`, `${year}-${month}-${end}`] as const;
+}
 
 function averageByHour(rows: BtmDetail['rows']): BtmEnergyFlows[] {
   if (!rows.length) return [];
@@ -74,6 +85,10 @@ function BtmResults({ result, id, mode }: { result: BtmResult; id: string; mode:
   const periodStart = view === 'day' ? day : from >= firstDate && from <= lastDate ? from : firstDate;
   const periodEnd = view === 'day' ? day : to >= firstDate && to <= lastDate ? to : lastDate;
   const validPeriod = periodStart <= periodEnd;
+  const intervalMonth = periodStart.slice(5, 7);
+  const [monthStart, monthEnd] = monthBounds(year, intervalMonth);
+  const preset = periodStart === firstDate && periodEnd === lastDate ? 'full'
+    : periodStart === monthStart && periodEnd === monthEnd ? intervalMonth : 'custom';
   const selectedFlows = useMemo(() => {
     if (view === 'average' || !dispatch || !validPeriod) return undefined;
     const rows = dispatch.filter(row => {
@@ -98,13 +113,30 @@ function BtmResults({ result, id, mode }: { result: BtmResult; id: string; mode:
     void detail.start(`/api/btm/runs/${id}/detail`, { candidate, year, site });
   }
 
+  function changePeriod(month: string) {
+    const [start, end] = month === 'full' ? [firstDate, lastDate] : monthBounds(year, month);
+    setFrom(start);
+    setTo(end);
+  }
+
+  function stepDay(amount: number) {
+    const next = new Date(`${day}T00:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + amount);
+    setDate(next.toISOString().slice(0, 10));
+  }
+
   return <div className="space-y-5">
     <section className={`${panel} space-y-4`}>
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div><h3 className="text-lg font-semibold">Annual scenario results</h3>
+        <div><h3 className="text-lg font-semibold">Study summary</h3>
           <p className="text-sm text-slate-400">{result.scenarioCount} independent scenarios · {result.years.length} weather {result.years.length === 1 ? 'year' : 'years'} × {result.sites.length} site shapes</p></div>
         {!result.costsIncluded && <span className="text-xs text-amber-200">Operating savings before project costs</span>}
       </div>
+      <nav aria-label="Study result sections" className="flex flex-wrap gap-2">
+        <a className={secondary} href="#btm-earnings">Earnings</a>
+        <a className={secondary} href="#btm-dispatch">Dispatch</a>
+        <a className={secondary} href="#btm-annual-details">Annual details</a>
+      </nav>
       <p className="text-sm text-slate-400">
         {result.setup.technology === 'industrial' ? 'Industrial rooftop' : 'Residential rooftop'} · {number(result.setup.annualLoadMWh)} MWh/year
         · {number(result.setup.importTariff)} EUR/MWh import · {number(result.setup.exportTariff)} EUR/MWh export
@@ -113,19 +145,6 @@ function BtmResults({ result, id, mode }: { result: BtmResult; id: string; mode:
       {mode === 'sizing' && <p className="rounded-lg bg-emerald-400/10 p-3 text-sm text-emerald-200">
         Recommended size · {recommendation.label} · {recommendation.size ? `${recommendation.size.pvMWp} MWp PV / ${recommendation.size.batteryMW} MW / ${recommendation.size.batteryMWh} MWh` : 'Grid only'} · {money(recommendation.summary.netSavings.median)} median net annual savings
       </p>}
-      <div className="overflow-auto"><table className="w-full min-w-[500px] text-sm">
-        <thead className="border-b border-white/15 text-left text-slate-400"><tr><th className="py-2 pr-3">Configuration</th>
-          {(['baselineBill', 'importCost', 'exportReceipts', 'wear', 'netSavings', 'peakImportMW', 'peakExportMW'] as const).map(key =>
-            <th key={key} className="px-2 text-right font-normal">{key === 'netSavings' ? 'Median net annual savings' : btmMetrics[key]}</th>)}</tr></thead>
-        <tbody>{result.ranking.map(index => { const item = result.candidates[index]; return <tr key={item.label} className="border-b border-white/10">
-          <th scope="row" className="py-3 pr-3 text-left font-medium text-slate-100">{item.label}{item.size &&
-            <span className="mt-0.5 block whitespace-nowrap text-xs font-normal text-slate-400">{item.size.pvMWp} MWp / {item.size.batteryMW} MW / {item.size.batteryMWh} MWh</span>}</th>
-          {(['baselineBill', 'importCost', 'exportReceipts', 'wear', 'netSavings', 'peakImportMW', 'peakExportMW'] as const).map(key =>
-            <td key={key} className={`px-2 text-right tabular-nums ${key === 'netSavings' ? 'font-semibold text-emerald-200' : ''}`}>
-              {format(key, item.summary[key][key === 'netSavings' ? 'median' : 'mean'])}</td>)}
-        </tr>; })}</tbody>
-      </table></div>
-      <p className="text-xs text-slate-400">The median net annual savings is the sizing result. The other columns show scenario means.</p>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm text-slate-300">Inspect configuration<select className={field} value={candidate}
           onChange={e => setCandidate(Number(e.target.value))}>{result.candidates.map((item, index) => <option key={item.label} value={index}>{item.label}</option>)}</select></label>
@@ -140,10 +159,10 @@ function BtmResults({ result, id, mode }: { result: BtmResult; id: string; mode:
     </section>
     <BtmEarningsChart earnings={result.candidates[candidate].earnings}
       annualMedian={result.candidates[candidate].summary.netSavings.median} label={result.candidates[candidate].label} />
-    <section className={`${panel} space-y-4`}>
+    <section id="btm-dispatch" className={`${panel} scroll-mt-16 space-y-4 lg:scroll-mt-4`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold">Consumption and production</h3>
+          <h3 className="text-lg font-semibold">Dispatch</h3>
           <p className="mt-1 text-sm text-slate-400">{result.candidates[candidate].label} · {energyProfile}</p>
         </div>
         <div className="flex flex-wrap gap-2" role="group" aria-label="Energy chart view">
@@ -152,6 +171,13 @@ function BtmResults({ result, id, mode }: { result: BtmResult; id: string; mode:
         </div>
       </div>
       {view !== 'average' && <>
+        {view === 'range' && <label className="block max-w-xs text-sm text-slate-300">Dispatch period
+          <select className={field} value={preset} onChange={e => changePeriod(e.target.value)}>
+            <option value="full">Full year</option>
+            {calendarMonths.map(month => <option key={month.value} value={month.value}>{month.label}</option>)}
+            <option value="custom" disabled>Custom dates</option>
+          </select>
+        </label>}
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto] sm:items-end">
           <label className="text-sm text-slate-300">Weather year<select className={field} value={year} onChange={e => {
             setYear(Number(e.target.value)); setFrom(''); setTo(''); setDate('');
@@ -166,19 +192,37 @@ function BtmResults({ result, id, mode }: { result: BtmResult; id: string; mode:
           </>}
           {!dispatch && <button type="button" className={secondary} onClick={inspect} disabled={detail.busy || !validPeriod}>Load dispatch</button>}
         </div>
+        {view === 'day' && <div className="flex flex-wrap gap-2">
+          <button type="button" className={secondary} disabled={day <= firstDate} onClick={() => stepDay(-1)}>Previous day</button>
+          <button type="button" className={secondary} disabled={day >= lastDate} onClick={() => stepDay(1)}>Next day</button>
+        </div>}
         {!validPeriod && <ErrorMessage error="The end date must be on or after the start date." />}
         <p className="text-sm text-slate-400">Selected year and site · {format(metric, selectedScenario[metric])} {btmMetrics[metric].toLowerCase()}</p>
         <JobProgress state={detail.state} busy={detail.busy} unit="scenarios" />
         <ErrorMessage error={requestedScenario === scenarioKey ? detail.error : ''} />
       </>}
-      {flows && flows.length > 0 && <>
-        <BtmEnergyChart flows={flows} filename={energyFilename} profile={`${result.candidates[candidate].label} · ${energyProfile}`} />
-        <p className="text-xs text-slate-400">PV sent to the battery is part of gross production. Charging deducts it below zero.</p>
-      </>}
+      {flows && flows.length > 0 && <BtmEnergyChart flows={flows} filename={energyFilename}
+        profile={`${result.candidates[candidate].label} · ${energyProfile}`} hourlyBars={view !== 'day'} />}
       {view !== 'average' && dispatch && <details className="border-t border-white/10 pt-3">
         <summary className="cursor-pointer text-sm text-slate-300">Full-year dispatch and CSV</summary>
         <div className="mt-3"><Dispatch key={detail.id} rows={dispatch} series={flowSeries} filename="btm-dispatch.csv" pageSize={168} /></div>
       </details>}
+    </section>
+    <section id="btm-annual-details" className={`${panel} scroll-mt-16 space-y-3 lg:scroll-mt-4`}>
+      <h3 className="text-lg font-semibold">Annual details</h3>
+      <div className="overflow-auto"><table className="w-full min-w-[500px] text-sm">
+        <thead className="border-b border-white/15 text-left text-slate-400"><tr><th className="py-2 pr-3">Configuration</th>
+          {(['baselineBill', 'importCost', 'exportReceipts', 'wear', 'netSavings', 'peakImportMW', 'peakExportMW'] as const).map(key =>
+            <th key={key} className="px-2 text-right font-normal">{key === 'netSavings' ? 'Median net annual savings' : btmMetrics[key]}</th>)}</tr></thead>
+        <tbody>{result.ranking.map(index => { const item = result.candidates[index]; return <tr key={item.label} className="border-b border-white/10">
+          <th scope="row" className="py-3 pr-3 text-left font-medium text-slate-100">{item.label}{item.size &&
+            <span className="mt-0.5 block whitespace-nowrap text-xs font-normal text-slate-400">{item.size.pvMWp} MWp / {item.size.batteryMW} MW / {item.size.batteryMWh} MWh</span>}</th>
+          {(['baselineBill', 'importCost', 'exportReceipts', 'wear', 'netSavings', 'peakImportMW', 'peakExportMW'] as const).map(key =>
+            <td key={key} className={`px-2 text-right tabular-nums ${key === 'netSavings' ? 'font-semibold text-emerald-200' : ''}`}>
+              {format(key, item.summary[key][key === 'netSavings' ? 'median' : 'mean'])}</td>)}
+        </tr>; })}</tbody>
+      </table></div>
+      <p className="text-xs text-slate-400">The median net annual savings is the sizing result. The other columns show scenario means.</p>
     </section>
   </div>;
 }
@@ -198,15 +242,28 @@ export default function BehindMeter({ catalog }: { catalog: Catalog }) {
   const [sizing, setSizing] = useState<Size[]>([{ pvMWp: '1', batteryMW: '0', batteryMWh: '0' }, { pvMWp: '1', batteryMW: '1', batteryMWh: '4' }]);
   const [years, setYears] = useState<string[]>();
   const [sites, setSites] = useState<string[]>();
+  const [mobileView, setMobileView] = useState<'setup' | 'results'>('setup');
+  const setupHeading = useRef<HTMLHeadingElement>(null);
+  const resultsHeading = useRef<HTMLHeadingElement>(null);
   const job = useSolarJob<BtmResult>();
   const sizes = mode === 'manual' ? [manual] : sizing;
   const haveData = catalog.years.length > 0 && catalog.loadSites.length > 0;
   const scenarioCount = (years?.length ?? catalog.years.length) * (sites?.length ?? catalog.loadSites.length);
   const showCosts = mode === 'sizing' || includeCosts;
 
+  function showMobileView(view: 'setup' | 'results') {
+    setMobileView(view);
+    const heading = view === 'setup' ? setupHeading : resultsHeading;
+    requestAnimationFrame(() => {
+      heading.current?.focus({ preventScroll: true });
+      heading.current?.scrollIntoView({ block: 'start' });
+    });
+  }
+
   function submit(event: FormEvent) {
     event.preventDefault();
     setRunMode(mode);
+    showMobileView('results');
     void job.start('/api/btm/runs', {
       technology, mode, annualLoadMWh: Number(annualLoadMWh), importTariff: Number(importTariff),
       exportTariff: Number(exportTariff), exportLimitMW: exportLimitMW === '' ? null : Number(exportLimitMW),
@@ -221,57 +278,103 @@ export default function BehindMeter({ catalog }: { catalog: Catalog }) {
     else setSizing(sizing.map((size, i) => i === index ? { ...size, [key]: value } : size));
   }
 
-  return <div className="space-y-5">
-    <section className={panel}><h2 className="text-xl font-semibold">Behind-the-meter study</h2>
-      <p className="mt-1 text-sm text-slate-400">Hourly PV self-consumption and solar-only battery charging with fixed import and export tariffs.</p>
-    </section>
-    {!haveData && <p className={`${panel} text-amber-200`}>The study needs the local Czech solar and German industrial load profiles.</p>}
-    <form className={`${panel} space-y-5`} onSubmit={submit}>
-      <fieldset className="space-y-5 disabled:opacity-60" disabled={job.busy || !haveData}>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <label className="text-sm text-slate-300">Study mode<select className={field} value={mode} onChange={e => setMode(e.target.value as typeof mode)}>
-            <option value="manual">Manual size</option><option value="sizing">Size comparison</option></select></label>
-          <label className="text-sm text-slate-300">PV technology<select className={field} value={technology} onChange={e => setTechnology(e.target.value as typeof technology)}>
-            <option value="industrial">Industrial rooftop</option><option value="residential">Residential rooftop</option></select></label>
-          <NumberField label="Annual site consumption (MWh)" value={annualLoadMWh} min={.000001} onChange={setAnnualLoad} />
-          <NumberField label="Import tariff (EUR/MWh)" value={importTariff} onChange={setImportTariff} />
-          <NumberField label="Export tariff (EUR/MWh)" value={exportTariff} onChange={setExportTariff} />
-          <NumberField label="Optional export limit (MW)" value={exportLimitMW} onChange={setExportLimit} required={false} />
-        </div>
-        <div className="space-y-3 border-t border-white/10 pt-4">
-          <h3 className="font-medium">{mode === 'manual' ? 'System size' : 'Candidate sizes'}</h3>
-          <p className="text-xs text-slate-400">For PV only, use zero for both battery dimensions.</p>
-          {sizes.map((size, index) => <div key={index} className="grid items-end gap-3 sm:grid-cols-3 lg:grid-cols-[1fr_1fr_1fr_auto]">
-            <NumberField label={mode === 'manual' ? 'PV capacity (MWp)' : `Candidate ${index + 1} PV (MWp)`} value={size.pvMWp} min={.000001} onChange={v => changeSize(index, 'pvMWp', v)} />
-            <NumberField label="Battery power (MW)" value={size.batteryMW} onChange={v => changeSize(index, 'batteryMW', v)} />
-            <NumberField label="Usable battery energy (MWh)" value={size.batteryMWh} onChange={v => changeSize(index, 'batteryMWh', v)} />
-            {mode === 'sizing' && sizing.length > 1 && <button type="button" className={secondary} onClick={() => setSizing(sizing.filter((_, i) => i !== index))}>Remove</button>}
-          </div>)}
-          {mode === 'sizing' && <button type="button" className={secondary} disabled={sizing.length >= 12}
-            onClick={() => setSizing([...sizing, { pvMWp: '1', batteryMW: '0', batteryMWh: '0' }])}>Add candidate</button>}
-        </div>
-        {sizes.some(size => Number(size.batteryMW) > 0) && <details className="border-t border-white/10 pt-4">
-          <summary className="cursor-pointer font-medium">Battery efficiency, wear and daily throughput</summary>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3"><BatteryFields value={battery} setValue={setBattery} dimensions={false} /></div>
-        </details>}
-        <div className="space-y-3 border-t border-white/10 pt-4">
-          {mode === 'manual' && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeCosts} onChange={e => setIncludeCosts(e.target.checked)} /> Include project costs</label>}
-          {showCosts && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {projectFields.map(([key, text]) => <NumberField key={key} label={text} value={costs[key] ?? ''} min={key.endsWith('Years') ? 1 : 0}
-              max={key === 'discountRate' || key.endsWith('Years') ? 100 : undefined} onChange={v => setCosts({ ...costs, [key]: v })} />)}
-          </div>}
-        </div>
-        <details className="border-t border-white/10 pt-4"><summary className="cursor-pointer font-medium">Scenario selection · {scenarioCount} combinations</summary>
-          <div className="mt-3 grid gap-4 sm:grid-cols-2">
-            <ProfileSelection label="Czech weather years" options={catalog.years.map(String)} values={years} onChange={setYears} />
-            <ProfileSelection label="German industrial load shapes" options={catalog.loadSites} values={sites} onChange={setSites} />
+  return <div className="grid min-w-0 grid-cols-1 gap-5 lg:grid-cols-12 lg:gap-7">
+    <div role="group" aria-label="BtM study workspace"
+      className="sticky top-0 z-10 grid grid-cols-2 gap-1 rounded-lg border border-white/10 bg-slate-900 p-1 lg:hidden">
+      {([['setup', 'Parameters'], ['results', 'Results']] as const).map(([key, label]) =>
+        <button type="button" key={key} aria-pressed={mobileView === key} onClick={() => showMobileView(key)}
+          className={`rounded-md px-3 py-2 text-sm font-medium ${mobileView === key ? 'bg-sky-400/15 text-sky-100' : 'text-slate-400 hover:bg-white/5'}`}>
+          {label}
+        </button>)}
+    </div>
+    <aside aria-label="BtM parameters" className={`min-w-0 lg:col-span-4 xl:col-span-3 ${mobileView === 'setup' ? '' : 'hidden lg:block'}`}>
+      <form className="space-y-5" onSubmit={submit}>
+        {!haveData && <p className={`${panel} text-sm text-amber-200`}>The study needs the local Czech solar and German industrial load profiles.</p>}
+        <fieldset className="min-w-0 space-y-4 disabled:opacity-60" disabled={job.busy || !haveData}>
+          <section className={`${panel} space-y-4`}>
+            <div>
+              <h2 ref={setupHeading} tabIndex={-1} className="flex scroll-mt-16 items-center gap-2 font-semibold focus:outline-none"><Settings2 size={18} className="text-sky-400" aria-hidden="true" />Study parameters</h2>
+              <p className="mt-1 text-xs text-slate-400">Hourly PV self-consumption and solar-only battery charging.</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+              <label className="text-sm text-slate-300">Study mode
+                <select className={field} value={mode} onChange={e => setMode(e.target.value as typeof mode)}>
+                  <option value="manual">Manual size</option>
+                  <option value="sizing">Size comparison</option>
+                </select>
+              </label>
+              <label className="text-sm text-slate-300">PV technology
+                <select className={field} value={technology} onChange={e => setTechnology(e.target.value as typeof technology)}>
+                  <option value="industrial">Industrial rooftop</option>
+                  <option value="residential">Residential rooftop</option>
+                </select>
+              </label>
+              <NumberField label="Annual site consumption (MWh)" value={annualLoadMWh} min={.000001} onChange={setAnnualLoad} />
+              <NumberField label="Import tariff (EUR/MWh)" value={importTariff} onChange={setImportTariff} />
+              <NumberField label="Export tariff (EUR/MWh)" value={exportTariff} onChange={setExportTariff} />
+              <NumberField label="Optional export limit (MW)" value={exportLimitMW} onChange={setExportLimit} required={false} />
+            </div>
+          </section>
+          <section className={`${panel} space-y-3`}>
+            <h3 className="font-medium">{mode === 'manual' ? 'System size' : 'Candidate sizes'}</h3>
+            <p className="text-xs text-slate-400">For PV only, use zero for both battery dimensions.</p>
+            {sizes.map((size, index) => <div key={index}
+              className={`grid items-end gap-3 sm:grid-cols-3 lg:grid-cols-1 ${mode === 'sizing' ? 'rounded-lg border border-white/10 p-3' : ''}`}>
+              <NumberField label={mode === 'manual' ? 'PV capacity (MWp)' : `Candidate ${index + 1} PV (MWp)`}
+                value={size.pvMWp} min={.000001} onChange={v => changeSize(index, 'pvMWp', v)} />
+              <NumberField label="Battery power (MW)" value={size.batteryMW} onChange={v => changeSize(index, 'batteryMW', v)} />
+              <NumberField label="Usable battery energy (MWh)" value={size.batteryMWh} onChange={v => changeSize(index, 'batteryMWh', v)} />
+              {mode === 'sizing' && sizing.length > 1 && <button type="button" className={secondary}
+                onClick={() => setSizing(sizing.filter((_, i) => i !== index))}>Remove</button>}
+            </div>)}
+            {mode === 'sizing' && <button type="button" className={secondary} disabled={sizing.length >= 12}
+              onClick={() => setSizing([...sizing, { pvMWp: '1', batteryMW: '0', batteryMWh: '0' }])}>Add candidate</button>}
+            {sizes.some(size => Number(size.batteryMW) > 0) && <details className="border-t border-white/10 pt-3">
+              <summary className="cursor-pointer text-sm font-medium">Battery efficiency, wear and daily throughput</summary>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+                <BatteryFields value={battery} setValue={setBattery} dimensions={false} />
+              </div>
+            </details>}
+          </section>
+          <section className={`${panel} space-y-4`}>
+            <h3 className="font-medium">Scenarios and costs</h3>
+            {mode === 'manual' && <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={includeCosts} onChange={e => setIncludeCosts(e.target.checked)} /> Include project costs
+            </label>}
+            {showCosts && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+              {projectFields.map(([key, text]) => <NumberField key={key} label={text} value={costs[key] ?? ''} min={key.endsWith('Years') ? 1 : 0}
+                max={key === 'discountRate' || key.endsWith('Years') ? 100 : undefined} onChange={v => setCosts({ ...costs, [key]: v })} />)}
+            </div>}
+            <details className="border-t border-white/10 pt-4">
+              <summary className="cursor-pointer text-sm font-medium">Scenario selection · {scenarioCount} combinations</summary>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+                <ProfileSelection label="Czech weather years" options={catalog.years.map(String)} values={years} onChange={setYears} />
+                <ProfileSelection label="German industrial load shapes" options={catalog.loadSites} values={sites} onChange={setSites} />
+              </div>
+              <p className="mt-3 text-xs text-slate-400">{catalog.loadSource.notes} <a className="text-sky-300 underline" href={catalog.loadSource.url}
+                target="_blank" rel="noreferrer">{catalog.loadSource.name}</a> · {catalog.loadSource.license}.</p>
+            </details>
+          </section>
+          <button className={`${action} flex w-full items-center justify-center gap-2`} type="submit" disabled={!scenarioCount}>
+            <Play size={16} aria-hidden="true" />{job.busy ? 'Calculating…' : `Run ${mode === 'sizing' ? 'size comparison' : 'BtM study'}`}
+          </button>
+        </fieldset>
+      </form>
+    </aside>
+    <section aria-labelledby="btm-study-results" className={`min-w-0 space-y-5 lg:col-span-8 xl:col-span-9 ${mobileView === 'results' ? '' : 'hidden lg:block'}`}>
+      <h2 ref={resultsHeading} id="btm-study-results" tabIndex={-1}
+        className="scroll-mt-16 text-xl font-semibold focus:outline-none lg:scroll-mt-4">Behind-the-meter results</h2>
+      {job.busy && <div className={panel}><JobProgress state={job.state} busy={job.busy} unit="scenarios" /></div>}
+      <ErrorMessage error={job.error} />
+      {job.result ? <BtmResults key={job.id} result={job.result} mode={runMode} id={job.id} /> :
+        !job.busy && !job.error && <div className={`${panel} flex min-h-64 items-center justify-center text-center`}>
+          <div>
+            <ChartNoAxesCombined size={36} className="mx-auto mb-3 text-sky-400" aria-hidden="true" />
+            <p className="text-lg font-medium text-slate-200">Run a study to explore the results</p>
+            <p className="mt-2 max-w-sm text-sm text-slate-400">Set your tariffs and system size, then compare earnings and hourly dispatch.</p>
+            <button type="button" className={`${secondary} mt-4 lg:hidden`} onClick={() => showMobileView('setup')}>Set parameters</button>
           </div>
-          <p className="mt-3 text-xs text-slate-400">{catalog.loadSource.notes} <a className="text-sky-300 underline" href={catalog.loadSource.url} target="_blank" rel="noreferrer">{catalog.loadSource.name}</a> · {catalog.loadSource.license}.</p>
-        </details>
-        <button className={action} type="submit" disabled={!scenarioCount}>Run {mode === 'sizing' ? 'size comparison' : 'BtM study'}</button>
-      </fieldset>
-      <JobProgress state={job.state} busy={job.busy} unit="scenarios" /><ErrorMessage error={job.error} />
-    </form>
-    {job.result && <BtmResults key={job.id} result={job.result} mode={runMode} id={job.id} />}
+        </div>}
+    </section>
   </div>;
 }
